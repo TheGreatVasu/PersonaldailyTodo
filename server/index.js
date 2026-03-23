@@ -1,41 +1,26 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { existsSync } from "fs";
-import { readFile, writeFile, mkdir } from "fs/promises";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
+import { MongoClient } from "mongodb";
 import { DEFAULT_DAILY_TASKS } from "./defaultTasks.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-/** Use DATA_DIR on Render when mounting a persistent disk (e.g. /var/data). */
-const DATA_DIR = process.env.DATA_DIR ? process.env.DATA_DIR : join(__dirname, "data");
-const DATA_FILE = join(DATA_DIR, "todos.json");
-const SUPPRESSIONS_FILE = join(DATA_DIR, "default-suppressions.json");
-
-async function ensureDataFile() {
-  await mkdir(DATA_DIR, { recursive: true });
-  try {
-    await readFile(DATA_FILE, "utf-8");
-  } catch {
-    await writeFile(DATA_FILE, "[]", "utf-8");
-  }
-}
+const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_DB = process.env.MONGODB_DB || "daily_todo";
 
 async function loadTodos() {
-  await ensureDataFile();
-  const raw = await readFile(DATA_FILE, "utf-8");
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return todosCollection.find({}, { projection: { _id: 0 } }).toArray();
 }
 
 async function saveTodos(todos) {
-  await ensureDataFile();
-  await writeFile(DATA_FILE, JSON.stringify(todos, null, 2), "utf-8");
+  await todosCollection.deleteMany({});
+  if (todos.length) {
+    await todosCollection.insertMany(todos, { ordered: false });
+  }
 }
 
 function suppressionKey(date, defaultId) {
@@ -43,19 +28,16 @@ function suppressionKey(date, defaultId) {
 }
 
 async function loadSuppressions() {
-  await mkdir(DATA_DIR, { recursive: true });
-  try {
-    const raw = await readFile(SUPPRESSIONS_FILE, "utf-8");
-    const parsed = JSON.parse(raw);
-    return new Set(Array.isArray(parsed) ? parsed : []);
-  } catch {
-    return new Set();
-  }
+  const rows = await suppressionsCollection.find({}, { projection: { _id: 0, key: 1 } }).toArray();
+  return new Set(rows.map((r) => r.key).filter(Boolean));
 }
 
 async function saveSuppressions(set) {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(SUPPRESSIONS_FILE, JSON.stringify([...set], null, 2), "utf-8");
+  await suppressionsCollection.deleteMany({});
+  const docs = [...set].map((key) => ({ key }));
+  if (docs.length) {
+    await suppressionsCollection.insertMany(docs, { ordered: false });
+  }
 }
 
 function templateDefForId(defaultId) {
@@ -166,6 +148,19 @@ function lastNDaysISO(n) {
   return days;
 }
 
+if (!MONGODB_URI) {
+  throw new Error("MONGODB_URI is required. Set it in server/.env.");
+}
+const mongoClient = new MongoClient(MONGODB_URI);
+await mongoClient.connect();
+const db = mongoClient.db(MONGODB_DB);
+const todosCollection = db.collection("todos");
+const suppressionsCollection = db.collection("defaultSuppressions");
+await Promise.all([
+  todosCollection.createIndex({ id: 1 }, { unique: true }),
+  suppressionsCollection.createIndex({ key: 1 }, { unique: true }),
+]);
+
 const app = express();
 app.set("trust proxy", 1);
 
@@ -182,10 +177,10 @@ app.use(
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "rastogi-todo-api" });
+  res.json({ ok: true, service: "rastogi-todo-api", db: "mongodb" });
 });
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "rastogi-todo-api" });
+  res.json({ ok: true, service: "rastogi-todo-api", db: "mongodb" });
 });
 
 app.get("/api/todos", async (req, res) => {
@@ -363,3 +358,13 @@ server.on("error", (err) => {
   }
   throw err;
 });
+
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, async () => {
+    try {
+      await mongoClient.close();
+    } finally {
+      process.exit(0);
+    }
+  });
+}
