@@ -168,9 +168,25 @@ const corsOrigins = (process.env.CORS_ORIGINS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+const corsOriginSet = new Set(corsOrigins.filter((o) => !o.includes("*")));
+const corsOriginWildcards = corsOrigins
+  .filter((o) => o.includes("*"))
+  .map((o) => o.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*"));
+
+function isAllowedCorsOrigin(origin) {
+  // Non-browser clients / same-origin requests do not send Origin header.
+  if (!origin) return true;
+  if (!corsOrigins.length) return true;
+  if (corsOriginSet.has(origin)) return true;
+  return corsOriginWildcards.some((pattern) => new RegExp(`^${pattern}$`).test(origin));
+}
+
 app.use(
   cors({
-    origin: corsOrigins.length ? corsOrigins : true,
+    origin(origin, cb) {
+      if (isAllowedCorsOrigin(origin)) return cb(null, true);
+      return cb(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true,
   })
 );
