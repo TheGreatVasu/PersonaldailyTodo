@@ -6,11 +6,20 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import { MongoClient } from "mongodb";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import { DEFAULT_DAILY_TASKS } from "./defaultTasks.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB = process.env.MONGODB_DB || "daily_todo";
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
+const BCRYPT_ROUNDS = Number.parseInt(process.env.BCRYPT_ROUNDS || "10", 10);
+
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET is required. Set it in server/.env.");
+}
 
 async function loadTodos() {
   return todosCollection.find({}, { projection: { _id: 0 } }).toArray();
@@ -154,10 +163,13 @@ if (!MONGODB_URI) {
 const mongoClient = new MongoClient(MONGODB_URI);
 await mongoClient.connect();
 const db = mongoClient.db(MONGODB_DB);
+const usersCollection = db.collection("users");
 const todosCollection = db.collection("todos");
 const suppressionsCollection = db.collection("defaultSuppressions");
 await Promise.all([
+  usersCollection.createIndex({ email: 1 }, { unique: true }),
   todosCollection.createIndex({ id: 1 }, { unique: true }),
+  todosCollection.createIndex({ userId: 1, id: 1 }, { unique: true }),
   suppressionsCollection.createIndex({ key: 1 }, { unique: true }),
 ]);
 
@@ -169,7 +181,9 @@ const corsOrigins = (process.env.CORS_ORIGINS || "")
   .map((s) => s.trim())
   .filter(Boolean);
 const defaultCorsOrigins = ["http://localhost:5173", "http://localhost:3000", "https://*.vercel.app"];
-const effectiveCorsOrigins = corsOrigins.length ? corsOrigins : defaultCorsOrigins;
+// Always include a safe baseline for this app so production won't break
+// due to a missing/incorrect CORS_ORIGINS env var.
+const effectiveCorsOrigins = [...new Set([...corsOrigins, ...defaultCorsOrigins])];
 const corsOriginSet = new Set(effectiveCorsOrigins.filter((o) => !o.includes("*")));
 const corsOriginWildcards = effectiveCorsOrigins
   .filter((o) => o.includes("*"))
@@ -185,10 +199,13 @@ function isAllowedCorsOrigin(origin) {
 app.use(
   cors({
     origin(origin, cb) {
-      if (isAllowedCorsOrigin(origin)) return cb(null, true);
-      return cb(new Error(`CORS blocked for origin: ${origin}`));
+      // Never error here; returning false just means CORS headers won't be set.
+      // Throwing an error causes Express to return 500 (which your production logs show).
+      return cb(null, isAllowedCorsOrigin(origin));
     },
     credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   })
 );
 app.use(express.json());
@@ -200,16 +217,91 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "rastogi-todo-api", db: "mongodb" });
 });
 
+function getBearerToken(req) {
+  const h = req.headers.authorization;
+  if (typeof h !== "string") return null;
+  const m = h.match(/^Bearer (.+)$/);
+  return m ? m[1] : null;
+}
+
+function requireAuth(req, res, next) {
+  const token = getBearerToken(req);
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.userId = payload.userId;
+    return next();
+  } catch {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+}
+
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { email, password } = req.body ?? {};
+    if (!email || typeof email !== "string" || !/^\S+@\S+\.\S+$/.test(email)) {
+      return res.status(400).json({ error: "Valid email is required" });
+    }
+    if (!password || typeof password !== "string" || password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const existing = await usersCollection.findOne({ email: normalizedEmail });
+    if (existing) return res.status(409).json({ error: "Email already in use" });
+
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const user = {
+      id: randomUUID(),
+      email: normalizedEmail,
+      passwordHash,
+      createdAt: new Date().toISOString(),
+    };
+    await usersCollection.insertOne(user);
+
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    res.status(201).json({ token, user: { id: user.id, email: user.email } });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body ?? {};
+    if (!email || typeof email !== "string" || !password || typeof password !== "string") {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const user = await usersCollection.findOne({ email: normalizedEmail });
+    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+
+    const ok = await bcrypt.compare(password, user.passwordHash);
+    if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    res.json({ token, user: { id: user.id, email: user.email } });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+// Protect user data endpoints
+app.use("/api/todos", requireAuth);
+app.use("/api/reports", requireAuth);
+
 app.get("/api/todos", async (req, res) => {
   try {
     const { date } = req.query;
-    if (date && typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      await ensureDailyDefaults(date);
-    }
-    let todos = await loadTodos();
+    const filter = { userId: req.userId };
     if (date && typeof date === "string") {
-      todos = todos.filter((t) => t.date === date);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ error: "date must be YYYY-MM-DD" });
+      }
+      filter.date = date;
     }
+    const todos = await todosCollection.find(filter, { projection: { _id: 0 } }).toArray();
     res.json(todos);
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
@@ -218,8 +310,10 @@ app.get("/api/todos", async (req, res) => {
 
 app.get("/api/todos/:id", async (req, res) => {
   try {
-    const todos = await loadTodos();
-    const todo = todos.find((t) => t.id === req.params.id);
+    const todo = await todosCollection.findOne(
+      { userId: req.userId, id: req.params.id },
+      { projection: { _id: 0 } }
+    );
     if (!todo) return res.status(404).json({ error: "Not found" });
     res.json(todo);
   } catch (e) {
@@ -234,18 +328,17 @@ app.post("/api/todos", async (req, res) => {
       return res.status(400).json({ error: "title is required" });
     }
     const day = typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayISO();
-    const todos = await loadTodos();
     const now = new Date().toISOString();
     const todo = {
       id: randomUUID(),
       title: title.trim(),
       completed: Boolean(completed),
       date: day,
+      userId: req.userId,
       createdAt: now,
       updatedAt: now,
     };
-    todos.push(todo);
-    await saveTodos(todos);
+    await todosCollection.insertOne(todo);
     res.status(201).json(todo);
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
@@ -255,31 +348,31 @@ app.post("/api/todos", async (req, res) => {
 app.put("/api/todos/:id", async (req, res) => {
   try {
     const { title, completed, date } = req.body;
-    const todos = await loadTodos();
-    const idx = todos.findIndex((t) => t.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: "Not found" });
-    const cur = todos[idx];
+    const set = {};
     if (title !== undefined) {
       if (typeof title !== "string" || !title.trim()) {
         return res.status(400).json({ error: "title must be non-empty" });
       }
-      cur.title = title.trim();
-      if (cur.defaultId) {
-        const def = templateDefForId(cur.defaultId);
-        if (def && cur.title !== def.title) delete cur.defaultId;
-      }
+      set.title = title.trim();
     }
-    if (completed !== undefined) cur.completed = Boolean(completed);
+    if (completed !== undefined) set.completed = Boolean(completed);
     if (date !== undefined) {
       if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return res.status(400).json({ error: "date must be YYYY-MM-DD" });
       }
-      cur.date = date;
+      set.date = date;
     }
-    cur.updatedAt = new Date().toISOString();
-    todos[idx] = cur;
-    await saveTodos(todos);
-    res.json(cur);
+
+    set.updatedAt = new Date().toISOString();
+
+    const result = await todosCollection.findOneAndUpdate(
+      { userId: req.userId, id: req.params.id },
+      { $set: set },
+      { returnDocument: "after", projection: { _id: 0 } }
+    );
+
+    if (!result || !result.value) return res.status(404).json({ error: "Not found" });
+    res.json(result.value);
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }
@@ -287,13 +380,17 @@ app.put("/api/todos/:id", async (req, res) => {
 
 app.patch("/api/todos/:id/toggle", async (req, res) => {
   try {
-    const todos = await loadTodos();
-    const idx = todos.findIndex((t) => t.id === req.params.id);
-    if (idx === -1) return res.status(404).json({ error: "Not found" });
-    todos[idx].completed = !todos[idx].completed;
-    todos[idx].updatedAt = new Date().toISOString();
-    await saveTodos(todos);
-    res.json(todos[idx]);
+    const todo = await todosCollection.findOne(
+      { userId: req.userId, id: req.params.id },
+      { projection: { _id: 0 } }
+    );
+    if (!todo) return res.status(404).json({ error: "Not found" });
+    const updated = await todosCollection.findOneAndUpdate(
+      { userId: req.userId, id: req.params.id },
+      { $set: { completed: !todo.completed, updatedAt: new Date().toISOString() } },
+      { returnDocument: "after", projection: { _id: 0 } }
+    );
+    res.json(updated.value);
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }
@@ -301,16 +398,8 @@ app.patch("/api/todos/:id/toggle", async (req, res) => {
 
 app.delete("/api/todos/:id", async (req, res) => {
   try {
-    const todos = await loadTodos();
-    const removed = todos.find((t) => t.id === req.params.id);
-    if (!removed) return res.status(404).json({ error: "Not found" });
-    if (removed.defaultId) {
-      const suppressed = await loadSuppressions();
-      suppressed.add(suppressionKey(removed.date, removed.defaultId));
-      await saveSuppressions(suppressed);
-    }
-    const next = todos.filter((t) => t.id !== req.params.id);
-    await saveTodos(next);
+    const removed = await todosCollection.deleteOne({ userId: req.userId, id: req.params.id });
+    if (!removed.deletedCount) return res.status(404).json({ error: "Not found" });
     res.status(204).send();
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
@@ -327,8 +416,9 @@ app.get("/api/reports/progress-30d", async (req, res) => {
       if (!Number.isNaN(parsed)) n = Math.min(120, Math.max(1, parsed));
     }
     const days = lastNDaysISO(n);
-    await ensureDailyDefaultsForDates(days);
-    const todos = await loadTodos();
+    const todos = await todosCollection
+      .find({ userId: req.userId, date: { $in: days } }, { projection: { _id: 0, date: 1, completed: 1 } })
+      .toArray();
     const byDate = new Map();
     for (const d of days) {
       byDate.set(d, { total: 0, completed: 0 });

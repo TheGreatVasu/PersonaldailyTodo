@@ -13,7 +13,12 @@ Architecture: **React** on [Vercel](https://vercel.com), **Express** on [Render]
 4. **Environment variables** (Render → your service → Environment):
    - `CORS_ORIGINS` — your Vercel URL(s), comma-separated, **no trailing slash**  
      Example: `https://rastogi-todo-list.vercel.app`
-   - Optional: `DATA_DIR` — if you add a **persistent disk**, set to the mount path (e.g. `/var/data`) so todos survive redeploys. Free tier uses ephemeral storage otherwise.
+  - `MONGODB_URI` — your MongoDB Atlas connection string
+  - `MONGODB_DB` — database name (default: `daily_todo`)
+  - `JWT_SECRET` — secret used to sign login tokens (put a strong random string)
+  - `JWT_EXPIRES_IN` — token lifetime (default: `7d`)
+  - Optional: `BCRYPT_ROUNDS` — bcrypt cost (default: `10`)
+  - `DATA_DIR` is no longer used (todos are stored in MongoDB).
 5. Copy the service URL, e.g. `https://rastogi-todo-api.onrender.com`.
 
 Health checks: `GET /health` or `GET /api/health` → `{ "ok": true }`.

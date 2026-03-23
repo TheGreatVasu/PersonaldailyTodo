@@ -198,6 +198,13 @@
   gap: 0.2rem;
 }
 
+.nav-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
 .nav-link {
   color: var(--muted);
   text-decoration: none;
@@ -802,6 +809,32 @@
   overflow-y: auto;
   border: 1px solid var(--surface2);
   border-radius: 10px;
+  /* Helps avoid layout jump when scrollbar appears */
+  scrollbar-gutter: stable both-edges;
+
+  /* Firefox scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(61, 156, 240, 0.75) rgba(36, 48, 68, 0.1);
+}
+
+/* Chromium/Edge/Safari scrollbar */
+.report-table-wrap::-webkit-scrollbar {
+  width: 10px;
+}
+
+.report-table-wrap::-webkit-scrollbar-track {
+  background: rgba(36, 48, 68, 0.1);
+  border-radius: 10px;
+}
+
+.report-table-wrap::-webkit-scrollbar-thumb {
+  background: rgba(61, 156, 240, 0.65);
+  border: 2px solid rgba(36, 48, 68, 0.1);
+  border-radius: 999px;
+}
+
+.report-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: rgba(61, 156, 240, 0.85);
 }
 
 @media (max-height: 520px) {

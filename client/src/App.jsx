@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppDataProvider, useAppData } from "./AppDataContext.jsx";
+import { AuthProvider, useAuth } from "./AuthContext.jsx";
+import LoginPage from "./LoginPage.jsx";
 import "./App.css";
 
 const ReportPage = lazy(() => import("./ReportPage.jsx"));
@@ -10,6 +12,7 @@ function navLinkClass({ isActive }) {
 }
 
 function AppNavbar() {
+  const { token, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
 
@@ -47,17 +50,31 @@ function AppNavbar() {
                 window.scrollTo({ top: 0, behavior: "smooth" });
               }}
             >
-              Rastogi Todo List
+              Daily To-Do List
             </Link>
             <div className="nav-center nav-links-desktop">
-              <NavLink to="/report" className={navLinkClass}>
-                Report Page
-              </NavLink>
-              <NavLink to="/" end className={navLinkClass}>
-                Daily Task
-              </NavLink>
+              {token ? (
+                <>
+                  <NavLink to="/report" className={navLinkClass}>
+                    Report Page
+                  </NavLink>
+                  <NavLink to="/" end className={navLinkClass}>
+                    Daily Task
+                  </NavLink>
+                </>
+              ) : (
+                <NavLink to="/login" className={navLinkClass}>
+                  Login
+                </NavLink>
+              )}
             </div>
-            <span className="nav-spacer nav-spacer-desktop" aria-hidden="true" />
+            <div className="nav-right nav-spacer-desktop">
+              {token && (
+                <button type="button" className="btn ghost small" onClick={logout}>
+                  Logout
+                </button>
+              )}
+            </div>
             <button
               type="button"
               className={`nav-burger ${menuOpen ? "is-open" : ""}`}
@@ -77,21 +94,43 @@ function AppNavbar() {
           className={`nav-mobile-dropdown ${menuOpen ? "is-open" : ""}`}
           hidden={!menuOpen}
         >
-          <NavLink
-            to="/report"
-            className={(p) => `${navLinkClass(p)} nav-link-mobile`}
-            onClick={() => setMenuOpen(false)}
-          >
-            Report Page
-          </NavLink>
-          <NavLink
-            to="/"
-            end
-            className={(p) => `${navLinkClass(p)} nav-link-mobile`}
-            onClick={() => setMenuOpen(false)}
-          >
-            Daily Task
-          </NavLink>
+          {token ? (
+            <>
+              <NavLink
+                to="/report"
+                className={(p) => `${navLinkClass(p)} nav-link-mobile`}
+                onClick={() => setMenuOpen(false)}
+              >
+                Report Page
+              </NavLink>
+              <NavLink
+                to="/"
+                end
+                className={(p) => `${navLinkClass(p)} nav-link-mobile`}
+                onClick={() => setMenuOpen(false)}
+              >
+                Daily Task
+              </NavLink>
+              <button
+                type="button"
+                className="btn ghost small"
+                onClick={() => {
+                  setMenuOpen(false);
+                  logout();
+                }}
+              >
+                Logout
+              </button>
+            </>
+          ) : (
+            <NavLink
+              to="/login"
+              className={(p) => `${navLinkClass(p)} nav-link-mobile`}
+              onClick={() => setMenuOpen(false)}
+            >
+              Login
+            </NavLink>
+          )}
         </div>
       </div>
     </div>
@@ -249,34 +288,48 @@ function DailyTasksPage() {
 }
 
 function AppLayout() {
+  const { token } = useAuth();
   return (
     <div className="app">
       <AppNavbar />
       <Routes>
-        <Route path="/" element={<DailyTasksPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/"
+          element={
+            token ? (
+              <AppDataProvider>
+                <DailyTasksPage />
+              </AppDataProvider>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
         <Route
           path="/report"
           element={
-            <Suspense fallback={<p className="muted center pad">Loading report…</p>}>
-              <ReportPage />
-            </Suspense>
+            token ? (
+              <AppDataProvider>
+                <Suspense fallback={<p className="muted center pad">Loading report…</p>}>
+                  <ReportPage />
+                </Suspense>
+              </AppDataProvider>
+            ) : (
+              <Navigate to="/login" replace />
+            )
           }
         />
+        <Route path="*" element={<Navigate to={token ? "/" : "/login"} replace />} />
       </Routes>
-      <footer className="footer">
-        <p className="footer-brand">Rastogi Todo List</p>
-        <p>
-          Data is stored on your machine in <code>server/data/todos.json</code>.
-        </p>
-      </footer>
     </div>
   );
 }
 
 export default function App() {
   return (
-    <AppDataProvider>
+    <AuthProvider>
       <AppLayout />
-    </AppDataProvider>
+    </AuthProvider>
   );
 }
