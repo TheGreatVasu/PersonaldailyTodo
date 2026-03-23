@@ -16,8 +16,11 @@ function authHeaders(extra = {}) {
 }
 
 async function handle(res) {
+  const text = await res.text().catch(() => "");
+
+  if (res.status === 204) return null;
+
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
     if (res.status === 401) {
       try {
         window.localStorage.removeItem("token");
@@ -25,10 +28,22 @@ async function handle(res) {
         // ignore
       }
     }
-    throw new Error(err.error || res.statusText);
+
+    if (!text) throw new Error(res.statusText || "Request failed");
+    try {
+      const err = JSON.parse(text);
+      throw new Error(err.error || res.statusText || "Request failed");
+    } catch {
+      throw new Error(text || res.statusText || "Request failed");
+    }
   }
-  if (res.status === 204) return null;
-  return res.json();
+
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(text || res.statusText || "Invalid JSON response");
+  }
 }
 
 export function fetchTodos(date) {
