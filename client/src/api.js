@@ -60,6 +60,14 @@ export function createTodo(body) {
   }).then(handle);
 }
 
+export function bulkImportTodos(items) {
+  return fetch(`${base}/api/todos/bulk`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ items }),
+  }).then(handle);
+}
+
 export function updateTodo(id, body) {
   return fetch(`${base}/api/todos/${id}`, {
     method: "PUT",

@@ -457,6 +457,22 @@
   margin-bottom: 1rem;
 }
 
+.bulk-import {
+  background: var(--bg);
+  border: 1px solid var(--surface2);
+  border-radius: 10px;
+  padding: 0.85rem 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.bulk-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+  align-items: center;
+}
+
 .text-input {
   flex: 1;
   min-width: 0;

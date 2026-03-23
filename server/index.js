@@ -345,6 +345,44 @@ app.post("/api/todos", async (req, res) => {
   }
 });
 
+app.post("/api/todos/bulk", async (req, res) => {
+  try {
+    const { items } = req.body ?? {};
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: "items[] is required" });
+    }
+
+    const now = new Date().toISOString();
+    const docs = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i] ?? {};
+      const title = typeof it.title === "string" ? it.title.trim() : "";
+      if (!title) {
+        return res.status(400).json({ error: `title is required at index ${i}` });
+      }
+
+      const date =
+        typeof it.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(it.date) ? it.date : todayISO();
+
+      docs.push({
+        id: randomUUID(),
+        title,
+        completed: Boolean(it.completed),
+        date,
+        userId: req.userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    await todosCollection.insertMany(docs, { ordered: false });
+    res.status(201).json({ inserted: docs.length });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
 app.put("/api/todos/:id", async (req, res) => {
   try {
     const { title, completed, date } = req.body;

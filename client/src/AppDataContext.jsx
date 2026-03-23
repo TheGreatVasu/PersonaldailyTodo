@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { useLocation } from "react-router-dom";
 import {
   createTodo,
+  bulkImportTodos,
   deleteTodo,
   fetchProgressReport,
   fetchTodos,
@@ -144,6 +145,17 @@ export function AppDataProvider({ children }) {
     }
   }
 
+  async function onBulkImport(items) {
+    setErr(null);
+    try {
+      await bulkImportTodos(items);
+      await loadTodos();
+      await refreshReport();
+    } catch (e2) {
+      setErr(e2.message || String(e2));
+    }
+  }
+
   const value = {
     selectedDate,
     setSelectedDate,
@@ -168,6 +180,7 @@ export function AppDataProvider({ children }) {
     onDelete,
     startEdit,
     saveEdit,
+    onBulkImport,
   };
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

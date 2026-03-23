@@ -137,6 +137,54 @@ function AppNavbar() {
   );
 }
 
+function parseBulkTodoText(rawText, fallbackDate) {
+  const text = String(rawText ?? "");
+  const lines = text.split(/\r?\n/);
+  const items = [];
+
+  for (const rawLine of lines) {
+    let line = String(rawLine ?? "").trim();
+    if (!line) continue;
+
+    // Allow bullet formats like "- task", "* task", "• task"
+    line = line.replace(/^(?:[-*]|•)\s+/, "");
+
+    // Optional date prefix: YYYY-MM-DD: title OR YYYY-MM-DD - title
+    let date = null;
+    const dateMatch = line.match(/^(\d{4}-\d{2}-\d{2})\s*[:\-]\s*(.+)$/);
+    if (dateMatch) {
+      date = dateMatch[1];
+      line = dateMatch[2].trim();
+    }
+
+    // Optional checkbox formats: [x] title / [ ] title
+    let completed = false;
+    const checkMatch = line.match(/^\[\s*([xX]|\s)\s*\]\s*(.+)$/);
+    if (checkMatch) {
+      completed = checkMatch[1].toLowerCase() === "x";
+      line = checkMatch[2].trim();
+    } else {
+      // Optional completion prefix: done: title / undone: title
+      const doneMatch = line.match(/^(done|undone)\s*:\s*(.+)$/i);
+      if (doneMatch) {
+        completed = doneMatch[1].toLowerCase() === "done";
+        line = doneMatch[2].trim();
+      }
+    }
+
+    const title = line.trim();
+    if (!title) continue;
+
+    items.push({
+      title,
+      completed,
+      date: date || fallbackDate,
+    });
+  }
+
+  return items;
+}
+
 function DailyTasksPage() {
   const {
     selectedDate,
@@ -155,7 +203,10 @@ function DailyTasksPage() {
     onDelete,
     startEdit,
     saveEdit,
+    onBulkImport,
   } = useAppData();
+
+  const [bulkText, setBulkText] = useState("");
 
   const dayStats = useMemo(() => {
     const total = todos.length;
@@ -202,6 +253,55 @@ function DailyTasksPage() {
               </span>
               <span className="stat-label">tasks</span>
             </div>
+          </div>
+        </div>
+
+        <div className="bulk-import" aria-label="Bulk import">
+          <div className="panel-head">
+            <h3 className="page-title" style={{ fontSize: "1rem", marginBottom: "0.25rem" }}>
+              Bulk import
+            </h3>
+            <span className="hint">
+              One task per line. Examples:
+              {" "}
+              `[x] Buy milk`
+              {" "}
+              `YYYY-MM-DD: [ ] Doctor`
+            </span>
+          </div>
+
+          <textarea
+            value={bulkText}
+            onChange={(e) => setBulkText(e.target.value)}
+            className="text-input"
+            placeholder="Paste tasks here..."
+            maxLength={20000}
+            style={{ minHeight: 120, resize: "vertical" }}
+            aria-label="Bulk import text"
+          />
+
+          <div className="bulk-actions">
+            <button
+              type="button"
+              className="btn primary"
+              disabled={loading || !bulkText.trim()}
+              onClick={async () => {
+                const items = parseBulkTodoText(bulkText, selectedDate);
+                if (!items.length) return;
+                await onBulkImport(items);
+                setBulkText("");
+              }}
+            >
+              Import
+            </button>
+            <button
+              type="button"
+              className="btn ghost small"
+              onClick={() => setBulkText("")}
+              disabled={loading || !bulkText.trim()}
+            >
+              Clear
+            </button>
           </div>
         </div>
 
