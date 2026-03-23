@@ -5,7 +5,7 @@ services:
     name: rastogi-todo-api
     runtime: node
     rootDir: server
-    buildCommand: npm install
+    buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_VERSION

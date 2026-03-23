@@ -8,7 +8,7 @@ Architecture: **React** on [Vercel](https://vercel.com), **Express** on [Render]
 2. In Render: **New +** → **Blueprint** (or **Web Service**).
 3. Connect the repo and use:
    - **Root directory:** `server`
-   - **Build command:** `npm install`
+   - **Build command:** `npm install && npm run build` (the `build` script only runs `node --check` — no compile step)
    - **Start command:** `npm start`
 4. **Environment variables** (Render → your service → Environment):
    - `CORS_ORIGINS` — your Vercel URL(s), comma-separated, **no trailing slash**  
