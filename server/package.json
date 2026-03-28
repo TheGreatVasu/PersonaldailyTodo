@@ -9,7 +9,8 @@
   "scripts": {
     "build": "node --check index.js",
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "purge-date": "node scripts/purgeDate.mjs"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

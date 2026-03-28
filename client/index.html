@@ -3,19 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0f1419" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#050608" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("daily-todo-theme");
+          if (t === "light") {
+            document.documentElement.setAttribute("data-theme", "light");
+            var m = document.querySelector('meta[name="theme-color"]');
+            if (m) m.setAttribute("content", "#fafafa");
+          }
+        } catch (e) {}
+      })();
+    </script>
     <meta name="description" content="Daily To-Do List — daily tasks, checkboxes, and 30-day progress." />
     <title>Daily To-Do List — Daily tasks</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,500&display=swap"
       rel="stylesheet"
     />
   </head>
   <body>
     <div id="root">
-      <p style="margin: 1.25rem; font-family: system-ui, sans-serif; color: #e8edf5">Loading app…</p>
+      <p style="margin: 1.25rem; font-family: system-ui, sans-serif; color: #64748b">Loading app…</p>
     </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

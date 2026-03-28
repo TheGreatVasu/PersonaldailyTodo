@@ -7,7 +7,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const title = useMemo(() => (mode === "login" ? "Login" : "Create account"), [mode]);
+  const title = useMemo(() => (mode === "login" ? "Welcome back" : "Create your account"), [mode]);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -17,71 +17,80 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="app">
-      <header className="header header-below-nav">
-        <h1 className="page-title">{title}</h1>
-        <p className="tagline">Your personal todo list. Sign in to view and manage your tasks.</p>
-      </header>
+    <div className="auth-page">
+      <div className="auth-backdrop" aria-hidden="true" />
+      <div className="auth-card" role="region" aria-labelledby="auth-heading">
+        <header className="auth-card-header">
+          <p className="auth-brand">Daily To-Do List</p>
+          <h1 id="auth-heading" className="auth-title">
+            {title}
+          </h1>
+          <p className="auth-subtitle">
+            {mode === "login"
+              ? "Sign in with your email and password to continue."
+              : "Set up an account to sync and manage your tasks."}
+          </p>
+        </header>
 
-      {authErr && (
-        <div className="banner error" role="alert">
-          {authErr}
+        <div className="auth-mode-toggle" role="tablist" aria-label="Sign in or register">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "login"}
+            className={`auth-mode-btn ${mode === "login" ? "is-active" : ""}`}
+            onClick={() => setMode("login")}
+          >
+            Login
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "register"}
+            className={`auth-mode-btn ${mode === "register" ? "is-active" : ""}`}
+            onClick={() => setMode("register")}
+          >
+            Register
+          </button>
         </div>
-      )}
 
-      <section className="panel" aria-label="Auth form">
-        <div className="panel-head" style={{ marginBottom: "0.75rem" }}>
-          <div className="hint" style={{ marginBottom: "0.6rem" }}>
-            {mode === "login" ? "Use your email and password to continue." : "Create an account with email + password."}
+        {authErr && (
+          <div className="banner error auth-banner" role="alert">
+            {authErr}
           </div>
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className={`btn ghost small ${mode === "login" ? "active" : ""}`}
-              onClick={() => setMode("login")}
-            >
-              Login
-            </button>
-            <button
-              type="button"
-              className={`btn ghost small ${mode === "register" ? "active" : ""}`}
-              onClick={() => setMode("register")}
-            >
-              Register
-            </button>
-          </div>
-        </div>
+        )}
 
-        <form onSubmit={onSubmit}>
-          <label className="date-label" style={{ marginBottom: "0.6rem" }}>
-            Email
+        <form className="auth-form" onSubmit={onSubmit} noValidate>
+          <div className="auth-field">
+            <label htmlFor="auth-email">Email</label>
             <input
+              id="auth-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="text-input"
+              className="text-input auth-input"
               placeholder="you@example.com"
               autoComplete="email"
+              autoCapitalize="off"
             />
-          </label>
-          <label className="date-label" style={{ marginBottom: "0.9rem" }}>
-            Password
+          </div>
+          <div className="auth-field">
+            <label htmlFor="auth-password">Password</label>
             <input
+              id="auth-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="text-input"
+              className="text-input auth-input"
               placeholder="••••••••"
               autoComplete={mode === "login" ? "current-password" : "new-password"}
             />
-          </label>
+          </div>
 
-          <button type="submit" className="btn primary" disabled={authLoading || !email.trim() || !password}>
-            {mode === "login" ? "Login" : "Create account"}
+          <button type="submit" className="btn primary auth-submit" disabled={authLoading || !email.trim() || !password}>
+            {authLoading ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}
           </button>
         </form>
-      </section>
+      </div>
     </div>
   );
 }
-
